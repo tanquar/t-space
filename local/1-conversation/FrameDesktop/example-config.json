@@ -1,0 +1,87 @@
+{
+  "workspaces": [
+    {
+      "name": "terminal",
+      "placements": [
+        { "virtual_monitor": "Built-in", "left": "0%", "top": "0%", "width": "100%", "height": "50%" }
+      ],
+      "boards": [
+        {
+          "name": "default",
+          "slots": [
+            {
+              "left": "0%", "top": "0%", "width": "100%", "height": "100%",
+              "app_id": "com.googlecode.iterm2",
+              "title_match": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "editor",
+      "placements": [
+        { "virtual_monitor": "PHL", "left": "0%", "top": "0%", "width": "50%", "height": "100%" },
+        { "virtual_monitor": "Built-in", "left": "0%", "top": "50%", "width": "100%", "height": "50%" }
+      ],
+      "boards": [
+        {
+          "name": "atonce",
+          "slots": [
+            {
+              "left": "0%", "top": "0%", "width": "100%", "height": "50%",
+              "app_id": "com.microsoft.VSCode",
+              "title_match": "atonce-api"
+            },
+            {
+              "left": "0%", "top": "50%", "width": "100%", "height": "50%",
+              "app_id": "com.microsoft.VSCode",
+              "title_match": "atbase"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "browser",
+      "placements": [
+        { "virtual_monitor": "PHL", "left": "50%", "top": "0%", "width": "50%", "height": "100%" }
+      ],
+      "boards": [
+        {
+          "name": "default",
+          "slots": [
+            {
+              "left": "0%", "top": "0%", "width": "100%", "height": "100%",
+              "app_id": "com.google.Chrome",
+              "title_match": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reference",
+      "placements": [
+        { "virtual_monitor": "LG", "left": "0%", "top": "0%", "width": "100%", "height": "50%" }
+      ],
+      "boards": [
+        {
+          "name": "default",
+          "slots": [
+            {
+              "left": "0%", "top": "0%", "width": "50%", "height": "100%",
+              "app_id": "com.mongodb.compass",
+              "title_match": null
+            },
+            {
+              "left": "50%", "top": "0%", "width": "50%", "height": "100%",
+              "app_id": "com.anthropic.claude",
+              "title_match": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
