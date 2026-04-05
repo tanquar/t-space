@@ -283,10 +283,11 @@ class SpaceDaemon {
         let flags = event.flags
         let isCmdHeld = flags.contains(.maskCommand)
 
-        // Cmd release → exit mode
-        if type == .flagsChanged && !isCmdHeld && isInMode {
+        // Option release → exit mode
+        let isOptHeld = flags.contains(.maskAlternate)
+        if type == .flagsChanged && !isOptHeld && isInMode {
             exitMode(confirmed: true)
-            return nil  // consume the flags event
+            return nil
         }
 
         guard type == .keyDown else {
