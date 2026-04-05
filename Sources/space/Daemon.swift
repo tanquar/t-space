@@ -233,7 +233,6 @@ class SpaceDaemon {
     private var modeWindowList: [WindowInfo] = []
     private var modeCurrentIndex: Int = 0
     private var eventTap: CFMachPort?
-    private static let syntheticMarker: Int64 = 0x7370_6163  // "spac" in hex
 
     private func setupEventTap() {
         let eventMask: CGEventMask =
