@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:t-space}",
+      "name": "Debug space",
+      "target": "space",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug space"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:t-space}",
+      "name": "Release space",
+      "target": "space",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release space"
+    }
+  ]
+}
