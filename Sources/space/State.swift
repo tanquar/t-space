@@ -1,12 +1,36 @@
 import Foundation
 
-/// Stored layout for a board
-struct BoardLayout: Codable {
+/// Layout for one monitor within a board
+struct MonitorLayout: Codable {
     var cgWindowIds: [Int]        // CGWindowIDs in layout order (stable)
-    var definition: String        // tile args as typed (e.g. "1 2 / 3")
-    var monitorId: Int            // last displayed on this monitor
+    var definition: String        // tile args (e.g. "1 2 / 3")
+    var monitorId: Int            // target monitor
     var lastFocusedCgId: Int?     // last focused CGWindowID
+}
+
+/// A board: one or more monitor layouts
+struct BoardLayout: Codable {
+    var layouts: [MonitorLayout]
     var childBoards: [String]?    // nested board names (e.g. ["dev", "web"])
+
+    // Convenience: primary (first) layout
+    var monitorId: Int { layouts[0].monitorId }
+    var cgWindowIds: [Int] { layouts.flatMap(\.cgWindowIds) }
+    var definition: String { layouts[0].definition }
+    var lastFocusedCgId: Int? {
+        get { layouts[0].lastFocusedCgId }
+        set { layouts[0].lastFocusedCgId = newValue }
+    }
+
+    /// Create a single-monitor board (current behavior)
+    init(cgWindowIds: [Int], definition: String, monitorId: Int,
+         lastFocusedCgId: Int?, childBoards: [String]? = nil) {
+        self.layouts = [MonitorLayout(
+            cgWindowIds: cgWindowIds, definition: definition,
+            monitorId: monitorId, lastFocusedCgId: lastFocusedCgId
+        )]
+        self.childBoards = childBoards
+    }
 }
 
 /// Saved state for a hidden window
