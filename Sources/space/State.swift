@@ -14,7 +14,10 @@ struct BoardLayout: Codable {
     var childBoards: [String]?    // nested board names (e.g. ["dev", "web"])
 
     // Convenience: primary (first) layout
-    var monitorId: Int { layouts[0].monitorId }
+    var monitorId: Int {
+        get { layouts[0].monitorId }
+        set { layouts[0].monitorId = newValue }
+    }
     var cgWindowIds: [Int] { layouts.flatMap(\.cgWindowIds) }
     var definition: String { layouts[0].definition }
     var lastFocusedCgId: Int? {
@@ -30,6 +33,37 @@ struct BoardLayout: Codable {
             monitorId: monitorId, lastFocusedCgId: lastFocusedCgId
         )]
         self.childBoards = childBoards
+    }
+
+    /// Migrate from old flat format
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        childBoards = try container.decodeIfPresent([String].self, forKey: .childBoards)
+
+        if let layouts = try? container.decode([MonitorLayout].self, forKey: .layouts) {
+            self.layouts = layouts
+        } else {
+            // Old format: flat fields
+            let cgWindowIds = try container.decode([Int].self, forKey: .cgWindowIds)
+            let definition = try container.decode(String.self, forKey: .definition)
+            let monitorId = try container.decode(Int.self, forKey: .monitorId)
+            let lastFocusedCgId = try container.decodeIfPresent(Int.self, forKey: .lastFocusedCgId)
+            self.layouts = [MonitorLayout(
+                cgWindowIds: cgWindowIds, definition: definition,
+                monitorId: monitorId, lastFocusedCgId: lastFocusedCgId
+            )]
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case layouts, childBoards
+        case cgWindowIds, definition, monitorId, lastFocusedCgId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(layouts, forKey: .layouts)
+        try container.encodeIfPresent(childBoards, forKey: .childBoards)
     }
 }
 

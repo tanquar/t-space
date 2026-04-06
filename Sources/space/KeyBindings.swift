@@ -11,13 +11,16 @@ enum Command: String, CaseIterable {
     case focusNextWindow = "focus-next-window"       // n
     case focusPrevWindow = "focus-prev-window"       // p
 
-    // Window swap (H/J/K/L)
-    case swapLeft = "swap-left"
-    case swapDown = "swap-down"
-    case swapUp = "swap-up"
-    case swapRight = "swap-right"
-    case swapNextWindow = "swap-next-window"         // N
-    case swapPrevWindow = "swap-prev-window"         // P
+    // Jump to edge (H/J/K/L)
+    case focusEdgeLeft = "focus-edge-left"
+    case focusEdgeDown = "focus-edge-down"
+    case focusEdgeUp = "focus-edge-up"
+    case focusEdgeRight = "focus-edge-right"
+    case focusLastWindow = "focus-last-window"       // N
+    case focusFirstWindow = "focus-first-window"     // P
+
+    // Swap prefix (x + h/j/k/l/n/p, x + H/J/K/L/N/P)
+    case swapPrefix = "swap-prefix"                  // x
 
     // Monitor ([/])
     case focusNextMonitor = "focus-next-monitor"
@@ -48,6 +51,10 @@ enum Command: String, CaseIterable {
     case inputMonitor = "input-monitor"              // @
     case inputSplitH = "input-split-h"               // -
     case inputSplitV = "input-split-v"               // /
+    case inputAddRight = "input-add-right"           // a
+    case inputAddLeft = "input-add-left"             // A
+    case inputAddBelow = "input-add-below"           // e
+    case inputAddAbove = "input-add-above"           // E
 
     // Select by number
     case selectWindow1 = "select-window-1"
@@ -77,20 +84,20 @@ let defaultBindings: [KeyBinding] = [
     .init(keycode: 38, shift: false, command: .focusDown),
     .init(keycode: 40, shift: false, command: .focusUp),
     .init(keycode: 37, shift: false, command: .focusRight),
-    // vi swap (uppercase)
-    .init(keycode: 4,  shift: true,  command: .swapLeft),
-    .init(keycode: 38, shift: true,  command: .swapDown),
-    .init(keycode: 40, shift: true,  command: .swapUp),
-    .init(keycode: 37, shift: true,  command: .swapRight),
+    // jump to edge (uppercase)
+    .init(keycode: 4,  shift: true,  command: .focusEdgeLeft),
+    .init(keycode: 38, shift: true,  command: .focusEdgeDown),
+    .init(keycode: 40, shift: true,  command: .focusEdgeUp),
+    .init(keycode: 37, shift: true,  command: .focusEdgeRight),
 
     // cycle windows
     .init(keycode: 45, shift: false, command: .focusNextWindow),  // n
     .init(keycode: 35, shift: false, command: .focusPrevWindow),  // p
     .init(keycode: 48, shift: false, command: .focusNextWindow),  // Tab
     .init(keycode: 48, shift: true,  command: .focusPrevWindow),  // Shift+Tab
-    // swap windows
-    .init(keycode: 45, shift: true,  command: .swapNextWindow),   // N
-    .init(keycode: 35, shift: true,  command: .swapPrevWindow),   // P
+    // first/last window on monitor
+    .init(keycode: 45, shift: true,  command: .focusLastWindow),  // N
+    .init(keycode: 35, shift: true,  command: .focusFirstWindow), // P
 
     // monitor
     .init(keycode: 33, shift: false, command: .focusNextMonitor), // [
@@ -119,10 +126,15 @@ let defaultBindings: [KeyBinding] = [
     // input commands
     .init(keycode: 17, shift: false, command: .inputTile),        // t
     .init(keycode: 1,  shift: false, command: .inputShow),        // s
+    .init(keycode: 7,  shift: false, command: .swapPrefix),       // x (swap prefix)
     .init(keycode: 47, shift: false, command: .inputBoard),       // . (period)
     .init(keycode: 27, shift: false, command: .inputSplitH),      // -
     .init(keycode: 44, shift: false, command: .inputSplitV),      // /
     .init(keycode: 19, shift: true,  command: .inputMonitor),     // @ (Shift+2)
+    .init(keycode: 0,  shift: false, command: .inputAddRight),    // a
+    .init(keycode: 0,  shift: true,  command: .inputAddLeft),     // A
+    .init(keycode: 14, shift: false, command: .inputAddBelow),    // e
+    .init(keycode: 14, shift: true,  command: .inputAddAbove),    // E
 
     // number select
     .init(keycode: 18, shift: false, command: .selectWindow1),

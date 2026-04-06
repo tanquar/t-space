@@ -32,6 +32,7 @@ class SpaceDaemon {
     var inputBuffer: String = ""
     var inputPrompt: String = ""
     var isInputMode: Bool { !inputPrompt.isEmpty }
+    var swapPending: Bool = false
 
     private var eventTap: CFMachPort?
 
@@ -312,6 +313,13 @@ class SpaceDaemon {
             }
         }
 
+        // Swap sub-mode (x + next key)
+        if isInMode && swapPending {
+            let isShift = flags.contains(.maskShift)
+            _ = handleSwapKey(keycode: keycode, shift: isShift)
+            return nil
+        }
+
         // Input sub-mode
         if isInMode && isInputMode {
             return handleInputKey(keycode: keycode, flags: flags, event: event)
@@ -358,6 +366,7 @@ class SpaceDaemon {
         modeCurrentMonitorId = nil
         inputPrompt = ""
         inputBuffer = ""
+        swapPending = false
     }
 
     // MARK: - Helpers

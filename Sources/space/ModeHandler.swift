@@ -16,13 +16,16 @@ extension SpaceDaemon {
         case .focusNextWindow:  cycleWindow(forward: true)
         case .focusPrevWindow:  cycleWindow(forward: false)
 
-        // Window swap
-        case .swapLeft:         swapWindow(direction: .left)
-        case .swapDown:         swapWindow(direction: .down)
-        case .swapUp:           swapWindow(direction: .up)
-        case .swapRight:        swapWindow(direction: .right)
-        case .swapNextWindow:   swapWindowCycle(forward: true)
-        case .swapPrevWindow:   swapWindowCycle(forward: false)
+        // Jump to edge
+        case .focusEdgeLeft:    focusEdge(direction: .left)
+        case .focusEdgeDown:    focusEdge(direction: .down)
+        case .focusEdgeUp:      focusEdge(direction: .up)
+        case .focusEdgeRight:   focusEdge(direction: .right)
+        case .focusLastWindow:  focusEndWindow(last: true)
+        case .focusFirstWindow: focusEndWindow(last: false)
+
+        // Swap prefix
+        case .swapPrefix:       enterSwapMode()
 
         // Monitor
         case .focusNextMonitor: cycleMonitor(forward: true)
@@ -55,6 +58,10 @@ extension SpaceDaemon {
         case .inputMonitor:     startInput("@")
         case .inputSplitH:      startInput("-")
         case .inputSplitV:      startInput("/")
+        case .inputAddRight:    startInput("a>")
+        case .inputAddLeft:     startInput("a<")
+        case .inputAddBelow:    startInput("e↓")
+        case .inputAddAbove:    startInput("e↑")
 
         // Number select
         case .selectWindow1:    selectWindow(wid: 1)
@@ -209,14 +216,196 @@ extension SpaceDaemon {
         print("  -> wid \(w.wid) \(w.appName): \(w.title)\(isVisible ? "" : " (restored)")")
     }
 
-    // MARK: - Swap
+    // MARK: - Jump to Edge
 
-    func swapWindow(direction: Direction) {
-        print("  [swap \(direction): not yet implemented]")
+    func focusEdge(direction: Direction) {
+        guard !modeWindowList.isEmpty else { return }
+
+        let monitors = detectMonitors()
+        let curMonId = modeCurrentMonitorId
+
+        let onMonitor = modeWindowList.filter { w in
+            curMonId != nil && monitorForWindow(w, monitors: monitors)?.id == curMonId
+        }
+        guard !onMonitor.isEmpty else { return }
+
+        let target: WindowInfo?
+        switch direction {
+        case .left:  target = onMonitor.min(by: { $0.position.x < $1.position.x })
+        case .right: target = onMonitor.max(by: { $0.position.x < $1.position.x })
+        case .up:    target = onMonitor.min(by: { $0.position.y < $1.position.y })
+        case .down:  target = onMonitor.max(by: { $0.position.y < $1.position.y })
+        }
+
+        if let t = target, let idx = modeWindowList.firstIndex(where: { $0.cgWindowId == t.cgWindowId }) {
+            modeCurrentIndex = idx
+            focusCurrentWindow()
+        }
     }
 
-    func swapWindowCycle(forward: Bool) {
-        print("  [swap \(forward ? "next" : "prev"): not yet implemented]")
+    func focusEndWindow(last: Bool) {
+        guard !modeWindowList.isEmpty else { return }
+
+        let monitors = detectMonitors()
+        let curMonId = modeCurrentMonitorId
+
+        let indices = modeWindowList.indices.filter { i in
+            curMonId != nil && monitorForWindow(modeWindowList[i], monitors: monitors)?.id == curMonId
+        }
+        guard !indices.isEmpty else { return }
+
+        modeCurrentIndex = last ? indices.last! : indices.first!
+        focusCurrentWindow()
+    }
+
+    // MARK: - Swap Mode
+
+    func enterSwapMode() {
+        swapPending = true
+        print("  swap: waiting for direction (h/j/k/l/n/p)...")
+    }
+
+    func handleSwapKey(keycode: Int64, shift: Bool) -> Bool {
+        swapPending = false
+
+        if shift {
+            // Shift: swap with edge window
+            switch keycode {
+            case 4:  performSwapEdge(direction: .left);  return true   // H
+            case 38: performSwapEdge(direction: .down);  return true   // J
+            case 40: performSwapEdge(direction: .up);    return true   // K
+            case 37: performSwapEdge(direction: .right); return true   // L
+            case 45: performSwapEnd(last: true);  return true          // N
+            case 35: performSwapEnd(last: false); return true          // P
+            default: break
+            }
+        } else {
+            // No shift: swap with adjacent window
+            switch keycode {
+            case 4:  performSwap(direction: .left);  return true   // h
+            case 38: performSwap(direction: .down);  return true   // j
+            case 40: performSwap(direction: .up);    return true   // k
+            case 37: performSwap(direction: .right); return true   // l
+            case 45: performSwapCycle(forward: true);  return true // n
+            case 35: performSwapCycle(forward: false); return true // p
+            default: break
+            }
+        }
+
+        print("  swap cancelled")
+        return false
+    }
+
+    private func performSwap(direction: Direction) {
+        guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
+        let cur = modeWindowList[modeCurrentIndex]
+
+        let monitors = detectMonitors()
+        let curMonId = monitorForWindow(cur, monitors: monitors)?.id
+        let curCenter = CGPoint(x: cur.position.x + cur.size.width / 2, y: cur.position.y + cur.size.height / 2)
+
+        var bestIndex = -1
+        var bestDist = CGFloat.infinity
+
+        for (i, w) in modeWindowList.enumerated() {
+            if w.cgWindowId == cur.cgWindowId { continue }
+            if monitorForWindow(w, monitors: monitors)?.id != curMonId { continue }
+
+            let center = CGPoint(x: w.position.x + w.size.width / 2, y: w.position.y + w.size.height / 2)
+            let dx = center.x - curCenter.x
+            let dy = center.y - curCenter.y
+
+            let inDir: Bool
+            switch direction {
+            case .left:  inDir = dx < -50
+            case .right: inDir = dx > 50
+            case .up:    inDir = dy < -50
+            case .down:  inDir = dy > 50
+            }
+
+            if inDir {
+                let dist = sqrt(dx * dx + dy * dy)
+                if dist < bestDist { bestDist = dist; bestIndex = i }
+            }
+        }
+
+        if bestIndex >= 0 {
+            doSwap(aIndex: modeCurrentIndex, bIndex: bestIndex)
+        } else {
+            print("  swap \(direction): no target")
+        }
+    }
+
+    private func performSwapCycle(forward: Bool) {
+        guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
+
+        let monitors = detectMonitors()
+        let curMonId = modeCurrentMonitorId
+
+        let indices = modeWindowList.indices.filter { i in
+            curMonId != nil && monitorForWindow(modeWindowList[i], monitors: monitors)?.id == curMonId
+        }
+        guard indices.count > 1 else { return }
+
+        let currentPos = indices.firstIndex(of: modeCurrentIndex) ?? 0
+        let nextPos = forward ? (currentPos + 1) % indices.count : (currentPos - 1 + indices.count) % indices.count
+        doSwap(aIndex: modeCurrentIndex, bIndex: indices[nextPos])
+    }
+
+    private func performSwapEdge(direction: Direction) {
+        guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
+        let cur = modeWindowList[modeCurrentIndex]
+
+        let monitors = detectMonitors()
+        let curMonId = monitorForWindow(cur, monitors: monitors)?.id
+
+        let onMonitor = modeWindowList.enumerated().filter { (_, w) in
+            w.cgWindowId != cur.cgWindowId && monitorForWindow(w, monitors: monitors)?.id == curMonId
+        }
+        guard !onMonitor.isEmpty else { return }
+
+        let target: (offset: Int, element: WindowInfo)?
+        switch direction {
+        case .left:  target = onMonitor.min(by: { $0.element.position.x < $1.element.position.x })
+        case .right: target = onMonitor.max(by: { $0.element.position.x < $1.element.position.x })
+        case .up:    target = onMonitor.min(by: { $0.element.position.y < $1.element.position.y })
+        case .down:  target = onMonitor.max(by: { $0.element.position.y < $1.element.position.y })
+        }
+
+        if let t = target {
+            doSwap(aIndex: modeCurrentIndex, bIndex: t.offset)
+        }
+    }
+
+    private func performSwapEnd(last: Bool) {
+        guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
+
+        let monitors = detectMonitors()
+        let curMonId = modeCurrentMonitorId
+
+        let indices = modeWindowList.indices.filter { i in
+            i != modeCurrentIndex && curMonId != nil && monitorForWindow(modeWindowList[i], monitors: monitors)?.id == curMonId
+        }
+        guard !indices.isEmpty else { return }
+
+        let targetIdx = last ? indices.last! : indices.first!
+        doSwap(aIndex: modeCurrentIndex, bIndex: targetIdx)
+    }
+
+    private func doSwap(aIndex: Int, bIndex: Int) {
+        let a = modeWindowList[aIndex]
+        let b = modeWindowList[bIndex]
+
+        let aFrame = CGRect(origin: a.position, size: a.size)
+        let bFrame = CGRect(origin: b.position, size: b.size)
+
+        moveWindow(a.windowElement, to: bFrame)
+        moveWindow(b.windowElement, to: aFrame)
+
+        // Focus follows the original window
+        modeCurrentIndex = bIndex
+        focusCurrentWindow()
+        print("  swapped wid \(a.wid) <-> wid \(b.wid)")
     }
 
     // MARK: - Resize
