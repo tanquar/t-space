@@ -245,6 +245,7 @@ class SpaceDaemon {
     private var isInMode = false
     private var modeWindowList: [WindowInfo] = []
     private var modeCurrentIndex: Int = 0
+    private var modeCurrentMonitorId: Int?  // tracks actual current monitor
     private var eventTap: CFMachPort?
 
     private func setupEventTap() {
@@ -293,6 +294,12 @@ class SpaceDaemon {
     ) -> Unmanaged<CGEvent>? {
         let keycode = event.getIntegerValueField(.keyboardEventKeycode)
         let flags = event.flags
+
+        // In mode: consume keyUp to avoid leaking to apps
+        if isInMode && type != .keyDown {
+            return nil
+        }
+
         guard type == .keyDown else {
             return Unmanaged.passUnretained(event)
         }
@@ -478,6 +485,7 @@ class SpaceDaemon {
         .init(keycode: 47, shift: false, command: .inputBoard),       // . (period)
         .init(keycode: 27, shift: false, command: .inputSplitH),      // -
         .init(keycode: 44, shift: false, command: .inputSplitV),      // /
+        .init(keycode: 19, shift: true,  command: .inputMonitor),     // @ (Shift+2)
 
         // number select
         .init(keycode: 18, shift: false, command: .selectWindow1),
@@ -640,12 +648,7 @@ class SpaceDaemon {
         guard !modeWindowList.isEmpty else { return }
 
         let monitors = detectMonitors()
-        let curMonId: Int?
-        if modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count {
-            curMonId = monitorForWindow(modeWindowList[modeCurrentIndex], monitors: monitors)?.id
-        } else {
-            curMonId = nil
-        }
+        let curMonId = modeCurrentMonitorId
 
         // Collect indices on the same monitor
         let sameMonIndices = modeWindowList.indices.filter { i in
@@ -675,18 +678,40 @@ class SpaceDaemon {
         }
     }
 
-    /// Focus the currently selected window
+    /// Focus the currently selected window.
+    /// If the window is off-screen (retreat area), restore it to monitor center.
     private func focusCurrentWindow() {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
         let w = modeWindowList[modeCurrentIndex]
-        // Suppress auto-restore during programmatic focus
         suppressUntil = Date().addingTimeInterval(1)
+
+        let monitors = detectMonitors()
+        let isVisible = monitors.contains { mon in
+            let rect = CGRect(origin: w.position, size: w.size)
+            let overlap = mon.frame.intersection(rect)
+            return overlap.width > rect.width * 0.3 && overlap.height > rect.height * 0.3
+        }
+
+        if !isVisible {
+            // Restore to default monitor full screen
+            let mon = monitors.first(where: { $0.isMain }) ?? monitors.first!
+            moveWindow(w.windowElement, to: mon.usableFrame)
+            state.clearHidden(w.cgWindowId)
+            state.save()
+        }
+
         raiseWindow(w.windowElement)
         activateApp(pid: w.pid)
-        print("  -> wid \(w.wid) \(w.appName): \(w.title)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.suppressUntil = .distantPast
+
+        // Update current monitor tracking
+        if !isVisible {
+            let mon = monitors.first(where: { $0.isMain }) ?? monitors.first!
+            modeCurrentMonitorId = mon.id
+        } else {
+            modeCurrentMonitorId = monitorForWindow(w, monitors: monitors)?.id
         }
+
+        print("  -> wid \(w.wid) \(w.appName): \(w.title)\(isVisible ? "" : " (restored)")")
     }
 
     private func swapWindow(direction: Direction) {
@@ -894,17 +919,6 @@ class SpaceDaemon {
         }
     }
 
-    private func selectMonitor(id: Int) {
-        let monitors = detectMonitors()
-        guard let _ = monitors.first(where: { $0.id == id }) else {
-            print("  monitor @\(id) not found")
-            return
-        }
-        if let w = modeWindowList.first(where: { monitorForWindow($0, monitors: monitors)?.id == id }) {
-            modeCurrentIndex = modeWindowList.firstIndex(where: { $0.cgWindowId == w.cgWindowId }) ?? modeCurrentIndex
-            print("  monitor @\(id) -> wid \(w.wid) \(w.appName)")
-        }
-    }
 
     private func hideCurrentWindow() {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
@@ -918,16 +932,6 @@ class SpaceDaemon {
         cycleWindow(forward: true)
     }
 
-    private func fullscreenCurrentWindow() {
-        guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
-        let w = modeWindowList[modeCurrentIndex]
-        let monitors = detectMonitors()
-        if let mon = monitorForWindow(w, monitors: monitors) {
-            moveWindow(w.windowElement, to: mon.usableFrame)
-            print("  fullscreen wid \(w.wid) on @\(mon.id)")
-        }
-    }
-
     private func exitMode(confirmed: Bool) {
         if confirmed && modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count {
             let w = modeWindowList[modeCurrentIndex]
@@ -938,6 +942,7 @@ class SpaceDaemon {
         isInMode = false
         modeWindowList = []
         modeCurrentIndex = -1
+        modeCurrentMonitorId = nil
     }
 
     // MARK: - Helpers
