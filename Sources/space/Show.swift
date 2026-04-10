@@ -17,8 +17,7 @@ func executeShow(
         }
         let onMonitor = windows.filter { monitorForWindow($0, monitors: monitors)?.id == monitorId }
         if let first = onMonitor.first {
-            activateApp(pid: first.pid)
-            raiseWindow(first.windowElement)
+            focusWindow(first.windowElement, pid: first.pid)
             print("Focus -> \(first.appName) on @\(monitorId)")
         } else {
             print("No windows on @\(monitorId)")
@@ -74,8 +73,7 @@ func executeShow(
 
         state.clearHidden(window.cgWindowId)
         state.save()
-        raiseWindow(window.windowElement)
-        activateApp(pid: window.pid)
+        focusWindow(window.windowElement, pid: window.pid)
         return
     }
 
@@ -299,7 +297,6 @@ private func raiseAndFocus(
     }
     let target = focusCgId ?? movedCgIds.first
     if let cgId = target, let w = state.resolveByCgId(cgId, in: windows) {
-        activateApp(pid: w.pid)
-        raiseWindow(w.windowElement)
+        focusWindow(w.windowElement, pid: w.pid)
     }
 }

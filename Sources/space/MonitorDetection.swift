@@ -2,22 +2,34 @@ import Foundation
 import CoreGraphics
 
 struct MonitorInfo {
-    let id: Int
+    let id: Int                     // User-facing stable numeric ID (assigned by registry)
+    let stableKey: String           // Persistent identity key (vendor:model:serial or vendor:model:label)
     let displayId: CGDirectDisplayID
-    let frame: CGRect       // Full display bounds (includes menu bar)
-    let usableFrame: CGRect // Excludes menu bar (top ~25px on main) and Dock
+    let frame: CGRect               // Full display bounds (includes menu bar)
+    let usableFrame: CGRect         // Excludes menu bar (top ~25px on main) and Dock
     let isMain: Bool
-    let name: String
+    let name: String                // Human-readable, may include position label for same-model groups
 }
 
-func detectMonitors() -> [MonitorInfo] {
+/// Raw per-display info before stableKey computation and numeric ID assignment.
+struct RawMonitor {
+    let displayId: CGDirectDisplayID
+    let frame: CGRect
+    let usableFrame: CGRect
+    let isMain: Bool
+    let name: String                // Base name (shared across same-model monitors)
+    let vendor: UInt32
+    let model: UInt32
+    let serial: UInt32
+}
+
+/// Raw detection: query CG + system_profiler. No stableKey or numeric ID here.
+func detectMonitorsRaw() -> [RawMonitor] {
     var displayIds = [CGDirectDisplayID](repeating: 0, count: 16)
     var displayCount: UInt32 = 0
     CGGetActiveDisplayList(16, &displayIds, &displayCount)
 
-    // Get display names from system_profiler
     let nameMap = systemProfilerDisplayNames()
-
     let menuBarHeights = detectMenuBarHeights()
 
     return (0..<Int(displayCount)).map { i in
@@ -26,13 +38,10 @@ func detectMonitors() -> [MonitorInfo] {
         let isMain = CGDisplayIsMain(did) != 0
         let res = "\(Int(bounds.width))x\(Int(bounds.height))"
 
-        // Match by resolution (system_profiler reports "UI Looks like" resolution)
         let name = nameMap[res]
             ?? (isMain ? "Built-in" : "Display-\(i + 1)")
 
-        // Find menu bar height for this monitor by matching origin
         let menuBarHeight = menuBarHeights[originKey(bounds.origin)] ?? 0
-
         let usable = CGRect(
             x: bounds.origin.x,
             y: bounds.origin.y + menuBarHeight,
@@ -40,15 +49,75 @@ func detectMonitors() -> [MonitorInfo] {
             height: bounds.height - menuBarHeight
         )
 
-        return MonitorInfo(
-            id: i + 1,
+        return RawMonitor(
             displayId: did,
             frame: bounds,
             usableFrame: usable,
             isMain: isMain,
-            name: name
+            name: name,
+            vendor: CGDisplayVendorNumber(did),
+            model: CGDisplayModelNumber(did),
+            serial: CGDisplaySerialNumber(did)
         )
     }
+}
+
+/// Compute stableKey and position label for each monitor.
+/// Same-model monitors without a serial are distinguished by arrangement position.
+func computeStableKeys(_ raws: [RawMonitor]) -> [(raw: RawMonitor, key: String, label: String)] {
+    // Group by vendor:model. Serials are used directly when non-zero.
+    // For same-model groups with serial==0, we assign position labels from origin.
+    var result: [(RawMonitor, String, String)] = []
+
+    // Group indices by vendor:model:name (name is included so "Built-in" vs "DELL" stay separated
+    // even if vendor numbers happen to collide).
+    let groupKey: (RawMonitor) -> String = { "\($0.vendor):\($0.model):\($0.name)" }
+    let groups = Dictionary(grouping: raws.indices, by: { groupKey(raws[$0]) })
+
+    for raw in raws {
+        let gKey = groupKey(raw)
+        let group = groups[gKey] ?? []
+        let sameModelRaws = group.map { raws[$0] }
+
+        // If serial is unique within the group, use it
+        let serialsInGroup = sameModelRaws.map(\.serial)
+        let useSerial = raw.serial != 0 && serialsInGroup.filter { $0 == raw.serial }.count == 1
+
+        let label: String
+        if useSerial {
+            label = ""
+        } else if sameModelRaws.count == 1 {
+            label = ""
+        } else if sameModelRaws.count == 2 {
+            let a = sameModelRaws[0], b = sameModelRaws[1]
+            let dx = abs(a.frame.origin.x - b.frame.origin.x)
+            let dy = abs(a.frame.origin.y - b.frame.origin.y)
+            if dx >= dy {
+                label = raw.frame.origin.x <= min(a.frame.origin.x, b.frame.origin.x) ? "Left" : "Right"
+            } else {
+                label = raw.frame.origin.y <= min(a.frame.origin.y, b.frame.origin.y) ? "Top" : "Bottom"
+            }
+        } else {
+            // 3+ monitors: sort by (y, x) reading order and label A, B, C, ...
+            let sorted = sameModelRaws.sorted { lhs, rhs in
+                if lhs.frame.origin.y != rhs.frame.origin.y {
+                    return lhs.frame.origin.y < rhs.frame.origin.y
+                }
+                return lhs.frame.origin.x < rhs.frame.origin.x
+            }
+            let idx = sorted.firstIndex(where: { $0.displayId == raw.displayId }) ?? 0
+            label = String(UnicodeScalar(65 + idx)!)  // A, B, C, ...
+        }
+
+        let key: String
+        if useSerial {
+            key = "\(raw.vendor):\(raw.model):\(raw.serial):\(raw.name)"
+        } else {
+            key = "\(raw.vendor):\(raw.model):\(raw.name):\(label)"
+        }
+        result.append((raw, key, label))
+    }
+    return result
 }
 
 /// Get display names, using a cache file to avoid slow system_profiler calls.
@@ -215,19 +284,61 @@ func debugMenuBar() {
     }
 }
 
-func listMonitors() {
-    let monitors = detectMonitors()
-    print("id  name             resolution       origin           usable               main")
-    for m in monitors {
-        let main = m.isMain ? "*" : ""
-        let res = "\(Int(m.frame.width))x\(Int(m.frame.height))"
-        let origin = "(\(Int(m.frame.origin.x)),\(Int(m.frame.origin.y)))"
-        let usable = "(\(Int(m.usableFrame.origin.x)),\(Int(m.usableFrame.origin.y))) \(Int(m.usableFrame.width))x\(Int(m.usableFrame.height))"
-        let id = "\(m.id)".padding(toLength: 4, withPad: " ", startingAt: 0)
-        let name = m.name.padding(toLength: 17, withPad: " ", startingAt: 0)
-        let resCol = res.padding(toLength: 17, withPad: " ", startingAt: 0)
-        let originCol = origin.padding(toLength: 17, withPad: " ", startingAt: 0)
-        let usableCol = usable.padding(toLength: 28, withPad: " ", startingAt: 0)
-        print("\(id)\(name)\(resCol)\(originCol)\(usableCol)\(main)")
+/// Registry that assigns and persists stable numeric IDs to monitors.
+/// User-facing @1, @2 refer to these IDs. Cache is invalidated on display reconfiguration.
+class MonitorRegistry {
+    private let state: SpaceState
+    private var cache: [MonitorInfo] = []
+    private var dirty: Bool = true
+
+    init(state: SpaceState) {
+        self.state = state
+    }
+
+    /// Mark the cache as stale. Next `current()` call will rebuild.
+    func invalidate() {
+        dirty = true
+    }
+
+    /// Return current monitors, rebuilding from CG if cache is dirty.
+    func current() -> [MonitorInfo] {
+        if dirty { rebuild() }
+        return cache
+    }
+
+    private func rebuild() {
+        let raws = detectMonitorsRaw()
+        let keyed = computeStableKeys(raws)
+
+        var changed = false
+        var newInfos: [MonitorInfo] = []
+        for (raw, key, label) in keyed {
+            let id: Int
+            if let existing = state.monitorIds[key] {
+                id = existing
+            } else {
+                id = state.nextMonitorId
+                state.monitorIds[key] = id
+                state.nextMonitorId += 1
+                changed = true
+                print("  [monitor] new @\(id) \(key)")
+            }
+            let displayName = label.isEmpty ? raw.name : "\(raw.name) \(label)"
+            newInfos.append(MonitorInfo(
+                id: id,
+                stableKey: key,
+                displayId: raw.displayId,
+                frame: raw.frame,
+                usableFrame: raw.usableFrame,
+                isMain: raw.isMain,
+                name: displayName
+            ))
+        }
+        // Stable sort by numeric id for deterministic ordering
+        newInfos.sort { $0.id < $1.id }
+        cache = newInfos
+        if changed { state.save() }
+        dirty = false
     }
 }
+

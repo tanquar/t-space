@@ -75,12 +75,39 @@ struct HiddenWindowState: Codable {
     let hasPosition: Bool         // false = was already off-screen, place naturally
 }
 
-/// Persisted state
+/// Persisted state. Uses custom decode to preserve forward compatibility when
+/// new fields are added (missing fields fall back to defaults instead of failing).
 struct PersistedState: Codable {
     var boards: [String: BoardLayout] = [:]
     var widMap: [Int: Int] = [:]           // wid -> cgWindowId
     var nextWid: Int = 1
     var hidden: [Int: HiddenWindowState] = [:]  // cgWindowId -> saved state
+    var monitorIds: [String: Int] = [:]    // stableKey -> numeric id (user-facing @1,@2,..)
+    var nextMonitorId: Int = 1
+
+    init(boards: [String: BoardLayout], widMap: [Int: Int], nextWid: Int,
+         hidden: [Int: HiddenWindowState], monitorIds: [String: Int], nextMonitorId: Int) {
+        self.boards = boards
+        self.widMap = widMap
+        self.nextWid = nextWid
+        self.hidden = hidden
+        self.monitorIds = monitorIds
+        self.nextMonitorId = nextMonitorId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case boards, widMap, nextWid, hidden, monitorIds, nextMonitorId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        boards = (try? c.decode([String: BoardLayout].self, forKey: .boards)) ?? [:]
+        widMap = (try? c.decode([Int: Int].self, forKey: .widMap)) ?? [:]
+        nextWid = (try? c.decode(Int.self, forKey: .nextWid)) ?? 1
+        hidden = (try? c.decode([Int: HiddenWindowState].self, forKey: .hidden)) ?? [:]
+        monitorIds = (try? c.decode([String: Int].self, forKey: .monitorIds)) ?? [:]
+        nextMonitorId = (try? c.decode(Int.self, forKey: .nextMonitorId)) ?? 1
+    }
 }
 
 /// Runtime state for the window manager
@@ -89,6 +116,8 @@ class SpaceState {
     var widMap: [Int: Int] = [:]
     var nextWid: Int = 1
     var hidden: [Int: HiddenWindowState] = [:]
+    var monitorIds: [String: Int] = [:]
+    var nextMonitorId: Int = 1
 
     /// Assign stable wids to windows. Existing mappings are preserved.
     func assignWids(_ windows: [WindowInfo]) -> [WindowInfo] {
@@ -204,7 +233,8 @@ class SpaceState {
 
     func save() {
         let persisted = PersistedState(
-            boards: boards, widMap: widMap, nextWid: nextWid, hidden: hidden
+            boards: boards, widMap: widMap, nextWid: nextWid, hidden: hidden,
+            monitorIds: monitorIds, nextMonitorId: nextMonitorId
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         try? data.write(to: URL(fileURLWithPath: Self.stateFilePath))
@@ -220,6 +250,8 @@ class SpaceState {
         state.widMap = persisted.widMap
         state.nextWid = persisted.nextWid
         state.hidden = persisted.hidden
+        state.monitorIds = persisted.monitorIds
+        state.nextMonitorId = max(1, persisted.nextMonitorId)
         return state
     }
 }

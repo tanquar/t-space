@@ -19,6 +19,8 @@ extension CGEvent {
 /// Daemon mode: watch for focus changes, display reconfigurations, and key events.
 class SpaceDaemon {
     let state: SpaceState
+    let monitors: MonitorRegistry
+    private var ipcServer: IPCServer?
     var observers: [pid_t: AXObserver] = [:]
     var knownPids: Set<pid_t> = []
     var suppressUntil: Date = .distantPast
@@ -38,6 +40,7 @@ class SpaceDaemon {
 
     init(state: SpaceState) {
         self.state = state
+        self.monitors = MonitorRegistry(state: state)
     }
 
     func run() {
@@ -95,6 +98,7 @@ class SpaceDaemon {
             print("[\(ts)] Display \(displayId): \(flagStrs.joined(separator: ", "))")
 
             if flags.contains(.beginConfigurationFlag) { return }
+            daemon.monitors.invalidate()
             daemon.scheduleRestore()
         }, nil)
 
@@ -104,6 +108,19 @@ class SpaceDaemon {
         }
 
         setupEventTap()
+
+        // Start IPC server for CLI clients
+        ipcServer = IPCServer { [weak self] req in
+            guard let self = self else {
+                return IPC.Response(out: "", err: "daemon shutting down", code: 1)
+            }
+            return runCommand(argv: req.argv, daemon: self)
+        }
+        do {
+            try ipcServer?.start()
+        } catch {
+            print("IPC server failed to start: \(error)")
+        }
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -124,10 +141,7 @@ class SpaceDaemon {
     }
 
     private func doRestore() {
-        let cacheFile = NSHomeDirectory() + "/.t-space-monitors.json"
-        try? FileManager.default.removeItem(atPath: cacheFile)
-
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let availableIds = Set(monitors.map(\.id))
         let expectedIds = Set(state.boards.values.map(\.monitorId))
         let missing = expectedIds.subtracting(availableIds)
@@ -160,8 +174,7 @@ class SpaceDaemon {
             }
             let focusCgId = layout.lastFocusedCgId ?? layout.cgWindowIds.first
             if let cgId = focusCgId, let w = state.resolveByCgId(cgId, in: windows) {
-                activateApp(pid: w.pid)
-                raiseWindow(w.windowElement)
+                focusWindow(w.windowElement, pid: w.pid)
             }
         }
 
@@ -220,7 +233,7 @@ class SpaceDaemon {
         var cgWinId: CGWindowID = 0
         guard _AXUIElementGetWindow(element, &cgWinId) == .success else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let windows = state.assignWids(detectWindows())
 
         guard let window = windows.first(where: { $0.cgWindowId == Int(cgWinId) }) else { return }
@@ -333,10 +346,10 @@ class SpaceDaemon {
                 return nil
             }
 
-            // Unknown key: exit mode, pass through
+            // Unknown key: exit mode, consume event
             print("  [key \(keycode) → exit]")
             exitMode(confirmed: false)
-            return Unmanaged.passUnretained(event)
+            return nil
         }
 
         return Unmanaged.passUnretained(event)
@@ -345,12 +358,42 @@ class SpaceDaemon {
     func enterMode() {
         isInMode = true
         modeCurrentIndex = -1
+        modeCurrentMonitorId = nil
         print("MODE ENTER")
+
+        // Detect currently focused window before async load
+        let focusedCgId = detectFocusedWindowCgId()
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.isInMode else { return }
             self.modeWindowList = self.state.assignWids(detectWindows())
-            print("  (\(self.modeWindowList.count) windows loaded)")
+
+            // Set initial selection to the currently focused window
+            if let cgId = focusedCgId,
+               let idx = self.modeWindowList.firstIndex(where: { $0.cgWindowId == cgId }) {
+                self.modeCurrentIndex = idx
+                let w = self.modeWindowList[idx]
+                let monitors = self.monitors.current()
+                self.modeCurrentMonitorId = monitorForWindow(w, monitors: monitors)?.id
+                print("  (\(self.modeWindowList.count) windows, active: wid \(w.wid) \(w.appName))")
+            } else {
+                print("  (\(self.modeWindowList.count) windows)")
+            }
         }
+    }
+
+    /// Get the CGWindowID of the currently focused window
+    private func detectFocusedWindowCgId() -> Int? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRef) == .success,
+              let focused = focusedRef else { return nil }
+
+        var cgWinId: CGWindowID = 0
+        guard _AXUIElementGetWindow(focused as! AXUIElement, &cgWinId) == .success else { return nil }
+        return Int(cgWinId)
     }
 
     func exitMode(confirmed: Bool) {

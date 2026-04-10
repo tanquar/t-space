@@ -22,11 +22,25 @@ func raiseWindow(_ element: AXUIElement) {
     AXUIElementPerformAction(element, kAXRaiseAction as CFString)
 }
 
-/// Activate (focus) an application by pid
+/// Activate an application by pid
 func activateApp(pid: pid_t) {
     if let app = NSRunningApplication(processIdentifier: pid) {
         app.activate()
     }
+}
+
+/// Focus a specific window: activate its app, set it as focused window, then raise it.
+/// This avoids macOS focusing a different window of the same app.
+func focusWindow(_ element: AXUIElement, pid: pid_t) {
+    // 1. Activate the app
+    if let app = NSRunningApplication(processIdentifier: pid) {
+        app.activate()
+    }
+    // 2. Set this window as the app's focused window
+    let appElement = AXUIElementCreateApplication(pid)
+    AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, element)
+    // 3. Raise to ensure it's on top
+    AXUIElementPerformAction(element, kAXRaiseAction as CFString)
 }
 
 /// Hide all on-screen windows on a monitor except the given CGWindowIDs.

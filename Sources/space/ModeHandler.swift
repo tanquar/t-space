@@ -94,7 +94,7 @@ extension SpaceDaemon {
         }
         guard let cur = current else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = monitorForWindow(cur, monitors: monitors)?.id
 
         let curCenter = CGPoint(
@@ -152,7 +152,7 @@ extension SpaceDaemon {
     func cycleWindow(forward: Bool) {
         guard !modeWindowList.isEmpty else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = modeCurrentMonitorId
 
         let sameMonIndices = modeWindowList.indices.filter { i in
@@ -189,7 +189,7 @@ extension SpaceDaemon {
         let w = modeWindowList[modeCurrentIndex]
         suppressUntil = Date().addingTimeInterval(1)
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let isVisible = monitors.contains { mon in
             let rect = CGRect(origin: w.position, size: w.size)
             let overlap = mon.frame.intersection(rect)
@@ -203,8 +203,7 @@ extension SpaceDaemon {
             state.save()
         }
 
-        raiseWindow(w.windowElement)
-        activateApp(pid: w.pid)
+        focusWindow(w.windowElement, pid: w.pid)
 
         if !isVisible {
             let mon = monitors.first(where: { $0.isMain }) ?? monitors.first!
@@ -221,7 +220,7 @@ extension SpaceDaemon {
     func focusEdge(direction: Direction) {
         guard !modeWindowList.isEmpty else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = modeCurrentMonitorId
 
         let onMonitor = modeWindowList.filter { w in
@@ -246,7 +245,7 @@ extension SpaceDaemon {
     func focusEndWindow(last: Bool) {
         guard !modeWindowList.isEmpty else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = modeCurrentMonitorId
 
         let indices = modeWindowList.indices.filter { i in
@@ -300,7 +299,7 @@ extension SpaceDaemon {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
         let cur = modeWindowList[modeCurrentIndex]
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = monitorForWindow(cur, monitors: monitors)?.id
         let curCenter = CGPoint(x: cur.position.x + cur.size.width / 2, y: cur.position.y + cur.size.height / 2)
 
@@ -339,7 +338,7 @@ extension SpaceDaemon {
     private func performSwapCycle(forward: Bool) {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = modeCurrentMonitorId
 
         let indices = modeWindowList.indices.filter { i in
@@ -356,7 +355,7 @@ extension SpaceDaemon {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
         let cur = modeWindowList[modeCurrentIndex]
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = monitorForWindow(cur, monitors: monitors)?.id
 
         let onMonitor = modeWindowList.enumerated().filter { (_, w) in
@@ -380,7 +379,7 @@ extension SpaceDaemon {
     private func performSwapEnd(last: Bool) {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let curMonId = modeCurrentMonitorId
 
         let indices = modeWindowList.indices.filter { i in
@@ -425,7 +424,7 @@ extension SpaceDaemon {
     // MARK: - Monitor
 
     func cycleMonitor(forward: Bool) {
-        let monitors = detectMonitors().sorted { $0.id < $1.id }
+        let monitors = self.monitors.current().sorted { $0.id < $1.id }
         guard monitors.count > 1 else { return }
 
         let currentMonId: Int
@@ -455,7 +454,7 @@ extension SpaceDaemon {
     // MARK: - Board
 
     func cycleBoardOnMonitor(forward: Bool) {
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let currentMonId = modeCurrentMonitorId ?? getCurrentMonitorId(monitors: monitors)
         let boardNames = state.boards.filter { $0.value.monitorId == currentMonId }.keys.sorted()
         guard !boardNames.isEmpty else {
@@ -485,7 +484,7 @@ extension SpaceDaemon {
     }
 
     func showBoardOnMonitor(first: Bool) {
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let currentMonId = modeCurrentMonitorId ?? getCurrentMonitorId(monitors: monitors)
         let boardNames = state.boards.filter { $0.value.monitorId == currentMonId }.keys.sorted()
         guard !boardNames.isEmpty else { return }
@@ -510,7 +509,7 @@ extension SpaceDaemon {
     func hideCurrentWindow() {
         guard modeCurrentIndex >= 0 && modeCurrentIndex < modeWindowList.count else { return }
         let w = modeWindowList[modeCurrentIndex]
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         state.recordHidden(w, monitors: monitors)
         hideWindow(w.windowElement, monitors: monitors)
         state.save()
@@ -528,7 +527,7 @@ extension SpaceDaemon {
     }
 
     func printMonitorList() {
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         for m in monitors {
             print("  @\(m.id) \(m.name) \(Int(m.frame.width))x\(Int(m.frame.height))")
         }

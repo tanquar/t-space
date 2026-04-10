@@ -56,7 +56,7 @@ extension SpaceDaemon {
 
         print("  execute: \(prompt)\(input)")
 
-        let monitors = detectMonitors()
+        let monitors = self.monitors.current()
         let windows = state.assignWids(detectWindows())
         modeWindowList = windows
 
@@ -142,7 +142,7 @@ extension SpaceDaemon {
             print("  empty slot at \(direction)")
         } else if targetCgIds.count == 1, let w = state.resolveByCgId(targetCgIds[0], in: windows) {
             moveWindow(w.windowElement, to: newTargetFrame)
-            raiseWindow(w.windowElement)
+            focusWindow(w.windowElement, pid: w.pid)
             print("  added wid \(w.wid) \(w.appName) to \(direction)")
         } else if targetCgIds.count > 1 {
             // Multiple windows: sub-tile in the target frame
@@ -158,7 +158,7 @@ extension SpaceDaemon {
                     subFrame = CGRect(x: newTargetFrame.minX + w2 * CGFloat(i), y: newTargetFrame.minY, width: w2, height: newTargetFrame.height)
                 }
                 moveWindow(w.windowElement, to: subFrame)
-                raiseWindow(w.windowElement)
+                raiseWindow(w.windowElement)  // raise only, don't steal focus from main window
             }
             print("  added \(targetCgIds.count) windows to \(direction)")
         } else {
